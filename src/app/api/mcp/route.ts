@@ -18,6 +18,19 @@ function unauthorized(): Response {
 }
 
 /**
+ * Stateless server: there is no standalone SSE stream to offer. Per the
+ * Streamable HTTP spec, answering GET with 405 tells MCP clients not to open
+ * one. Handling GET like POST opened a stream and closed it at once, so
+ * clients reconnected in a tight loop.
+ */
+function methodNotAllowed(): Response {
+  return Response.json(
+    { jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed." }, id: null },
+    { status: 405, headers: { Allow: "POST, DELETE" } }
+  );
+}
+
+/**
  * Stateless Streamable HTTP endpoint: each request gets a fresh MCP server bound
  * to the caller's API key, which fits Vercel's serverless functions.
  */
@@ -39,4 +52,4 @@ async function handle(request: Request): Promise<Response> {
   }
 }
 
-export { handle as GET, handle as POST, handle as DELETE };
+export { methodNotAllowed as GET, handle as POST, handle as DELETE };
