@@ -117,21 +117,26 @@ export async function POST(request: Request): Promise<Response> {
         /* handled below */
       }
     }
-    const ready = orders.filter((o) => {
-      if (o.tracking_number) return true;
-      failed.push({ order_sn: o.order_sn, reason: "Chưa có mã vận đơn (chưa chuẩn bị hàng)" });
-      return false;
-    });
-    if (!ready.length) throw new HttpError(422, JSON.stringify({ failed }));
+    // Orders without a tracking number are still sent: channels that allow "print before arrange shipment"
+    // (preprint, e.g. instant/hỏa tốc) can print them; other channels fail and are reported in X-Label-Failed.
+    const noTracking = new Set(orders.filter((o) => !o.tracking_number).map((o) => o.order_sn));
+    const ready = orders;
 
     // 2. Create the document task. "Already created" style failures are fine: the result step decides.
     const created = await callSdk(ctx, "logistics.create_shipping_document", shopId, {
-      order_list: ready.map((o) => ({ ...ref(o), tracking_number: o.tracking_number, shipping_document_type: docType })),
+      order_list: ready.map((o) => ({
+        ...ref(o),
+        ...(o.tracking_number ? { tracking_number: o.tracking_number } : {}),
+        shipping_document_type: docType,
+      })),
     });
     const createFail = new Map(
       resultList(created)
         .filter((r) => r.fail_error)
-        .map((r) => [r.order_sn, `${r.fail_error} ${r.fail_message ?? ""}`.trim()])
+        .map((r) => [
+          r.order_sn,
+          `${noTracking.has(r.order_sn) ? "Chưa có mã vận đơn (chưa chuẩn bị hàng). " : ""}${r.fail_error} ${r.fail_message ?? ""}`.trim(),
+        ])
     );
 
     // 3. Wait until every document is READY (or FAILED).
